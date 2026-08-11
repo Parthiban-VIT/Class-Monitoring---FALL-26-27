@@ -1015,52 +1015,52 @@ def admin_page():
 
     card_end()
 
-    ```python
-# -----------------------------
-# Observation Log — Monitor
-# (class-by-class matching using monitor + slot + faculty + venue)
-# -----------------------------
-card_start("Observation Log — Monitor", "🧾")
-
-selected_date = st.date_input(
-    "Select Date",
-    value=today_date,
-    key="monitor_log_selected_date"
-)
-
-selected_weekday = selected_date.strftime("%A")
-
-schedule_for_date = df_all[
-    df_all["Day"].str.strip().str.lower() == selected_weekday.lower()
-].copy()
-
-if schedule_for_date.empty:
-    st.info(f"No classes are scheduled on {selected_weekday}.")
-else:
-
-    # ---------------------------------------------------------
-    # Get observations for the selected date
-    # ---------------------------------------------------------
-    if date_col:
-        obs_for_date = (
-            obs_df[obs_df["_observed_date"] == selected_date]
-            if not obs_df.empty
-            else obs_df
-        )
+   
+    # -----------------------------
+    # Observation Log — Monitor
+    # (class-by-class matching using monitor + slot + faculty + venue)
+    # -----------------------------
+    card_start("Observation Log — Monitor", "🧾")
+    
+    selected_date = st.date_input(
+        "Select Date",
+        value=today_date,
+        key="monitor_log_selected_date"
+    )
+    
+    selected_weekday = selected_date.strftime("%A")
+    
+    schedule_for_date = df_all[
+        df_all["Day"].str.strip().str.lower() == selected_weekday.lower()
+    ].copy()
+    
+    if schedule_for_date.empty:
+        st.info(f"No classes are scheduled on {selected_weekday}.")
     else:
-        obs_for_date = (
-            obs_df[
-                obs_df["day"].astype(str).str.strip().str.lower()
-                == selected_weekday.lower()
-            ]
-            if not obs_df.empty
-            else obs_df
-        )
-
-        st.caption(
-            "⚠️ No timestamp column found — matching is done by weekday name, "
-            "so this may include observations from other weeks on the same weekday."
-        )
+    
+        # ---------------------------------------------------------
+        # Get observations for the selected date
+        # ---------------------------------------------------------
+        if date_col:
+            obs_for_date = (
+                obs_df[obs_df["_observed_date"] == selected_date]
+                if not obs_df.empty
+                else obs_df
+            )
+        else:
+            obs_for_date = (
+                obs_df[
+                    obs_df["day"].astype(str).str.strip().str.lower()
+                    == selected_weekday.lower()
+                ]
+                if not obs_df.empty
+                else obs_df
+            )
+    
+            st.caption(
+                "⚠️ No timestamp column found — matching is done by weekday name, "
+                "so this may include observations from other weeks on the same weekday."
+            )
 
         # ---------------------------------------------------------
         # Build observation lookup
