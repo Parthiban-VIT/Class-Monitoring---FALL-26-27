@@ -877,36 +877,49 @@ def admin_page():
 
     card_end()
 
+  
     # -----------------------------
-    # Classes not yet observed today (pending list, slot-level)
+    # Classes not yet observed today
+    # (pending list — uniquely matched by monitor + slot + faculty + venue)
     # -----------------------------
     card_start("Pending Classes — Today", "🕓")
-
+    
     if obs_today.empty:
-        pending_df = df
+        pending_df = df.copy()
     else:
+        # Each observation belongs to one specific:
+        # Monitor + Slot + Faculty + Venue
         obs_keys = set(
             zip(
+                obs_today["monitor_id"].astype(str).str.strip(),
                 obs_today["slot"].astype(str).str.strip().str.lower(),
-                obs_today["faculty_id"].astype(str).str.strip()
+                obs_today["faculty_id"].astype(str).str.strip(),
+                obs_today["venue"].astype(str).str.strip().str.lower()
             )
         )
+    
         mask = ~df.apply(
             lambda r: (
+                str(r["ID"]).strip(),
                 str(r["Slot"]).strip().lower(),
-                str(r["Faculty ID"]).strip()
+                str(r["Faculty ID"]).strip(),
+                str(r["Venue"]).strip().lower()
             ) in obs_keys,
             axis=1
         )
+    
         pending_df = df[mask]
-
+    
     if pending_df.empty:
         st.success("🎉 Every class scheduled today has been observed.")
     else:
         render_table(
-            pending_df.sort_values(["Start"])[["Day", "Slot", "Time", "Venue", "Faculty Name"]], key="pending_classes"
+            pending_df.sort_values(["Start"])[
+                ["Day", "Slot", "Time", "Venue", "Faculty Name", "Name"]
+            ].rename(columns={"Name": "Monitor"}),
+            key="pending_classes"
         )
-
+    
     card_end()
 
     # -----------------------------
@@ -1002,54 +1015,109 @@ def admin_page():
 
     card_end()
 
-    # -----------------------------
-    # Observation Log — Monitor
-    # (for a selected date, shows every scheduled class + whether that
-    # class's monitor recorded an observation — pending-style, per date)
-    # -----------------------------
-    card_start("Observation Log — Monitor", "🧾")
+    ```python
+# -----------------------------
+# Observation Log — Monitor
+# (class-by-class matching using monitor + slot + faculty + venue)
+# -----------------------------
+card_start("Observation Log — Monitor", "🧾")
 
-    selected_date = st.date_input(
-        "Select Date",
-        value=today_date,
-        key="monitor_log_selected_date"
-    )
-    selected_weekday = selected_date.strftime("%A")
+selected_date = st.date_input(
+    "Select Date",
+    value=today_date,
+    key="monitor_log_selected_date"
+)
 
-    schedule_for_date = df_all[df_all["Day"].str.strip().str.lower() == selected_weekday.lower()].copy()
+selected_weekday = selected_date.strftime("%A")
 
-    if schedule_for_date.empty:
-        st.info(f"No classes are scheduled on {selected_weekday}.")
+schedule_for_date = df_all[
+    df_all["Day"].str.strip().str.lower() == selected_weekday.lower()
+].copy()
+
+if schedule_for_date.empty:
+    st.info(f"No classes are scheduled on {selected_weekday}.")
+else:
+
+    # ---------------------------------------------------------
+    # Get observations for the selected date
+    # ---------------------------------------------------------
+    if date_col:
+        obs_for_date = (
+            obs_df[obs_df["_observed_date"] == selected_date]
+            if not obs_df.empty
+            else obs_df
+        )
     else:
-        if date_col:
-            obs_for_date = obs_df[obs_df["_observed_date"] == selected_date] if not obs_df.empty else obs_df
-        else:
-            obs_for_date = (
-                obs_df[obs_df["day"].astype(str).str.strip().str.lower() == selected_weekday.lower()]
-                if not obs_df.empty else obs_df
-            )
-            st.caption(
-                "⚠️ No timestamp column found — matching is done by weekday name, "
-                "so this may include observations from other weeks on the same weekday."
-            )
+        obs_for_date = (
+            obs_df[
+                obs_df["day"].astype(str).str.strip().str.lower()
+                == selected_weekday.lower()
+            ]
+            if not obs_df.empty
+            else obs_df
+        )
 
+        st.caption(
+            "⚠️ No timestamp column found — matching is done by weekday name, "
+            "so this may include observations from other weeks on the same weekday."
+        )
+
+        # ---------------------------------------------------------
+        # Build observation lookup
+        #
+        # IMPORTANT:
+        # One observation is identified by:
+        # Monitor + Slot + Faculty + Venue
+        #
+        # This prevents one observed class from marking another
+        # class of the same monitor as observed.
+        # ---------------------------------------------------------
         obs_lookup = {}
+    
         for _, orow in obs_for_date.iterrows():
-            key = (str(orow.get("slot", "")).strip().lower(), str(orow.get("monitor_id", "")).strip())
+    
+            key = (
+                str(orow.get("monitor_id", "")).strip(),
+                str(orow.get("slot", "")).strip().lower(),
+                str(orow.get("faculty_id", "")).strip(),
+                str(orow.get("venue", "")).strip().lower()
+            )
+    
             obs_lookup[key] = orow
-
+    
+        # ---------------------------------------------------------
+        # Build class-by-class monitoring log
+        # ---------------------------------------------------------
         rows = []
+    
         for _, srow in schedule_for_date.sort_values("Start").iterrows():
-            key = (str(srow["Slot"]).strip().lower(), str(srow["ID"]).strip())
+    
+            key = (
+                str(srow["ID"]).strip(),
+                str(srow["Slot"]).strip().lower(),
+                str(srow["Faculty ID"]).strip(),
+                str(srow["Venue"]).strip().lower()
+            )
+    
             orow = obs_lookup.get(key)
-
+    
             if orow is not None:
+    
                 delay, comment = split_delay_comment(orow)
-                punctuality_html = status_badge(bool(orow.get("on_time")))
+    
+                punctuality_html = status_badge(
+                    bool(orow.get("on_time"))
+                )
+    
+                recorded = True
+    
             else:
-                delay, comment = "-", "-"
+    
+                delay = "-"
+                comment = "-"
                 punctuality_html = "-"
-
+                recorded = False
+    
             rows.append({
                 "Date": selected_date.strftime("%d %b %Y"),
                 "Day": srow["Day"],
@@ -1058,15 +1126,20 @@ def admin_page():
                 "Venue": srow["Venue"],
                 "Faculty": srow["Faculty Name"],
                 "Monitor": srow["Name"],
-                "Recorded": recorded_badge(orow is not None),
+                "Recorded": recorded_badge(recorded),
                 "Status": punctuality_html,
                 "Delay": delay,
-                "Comments": comment,
+                "Comments": comment
             })
-
+    
         monitor_log_df = pd.DataFrame(rows)
-        render_table(monitor_log_df, raw_html_cols={"Recorded", "Status"}, key="monitor_observation_log")
-
+    
+        render_table(
+            monitor_log_df,
+            raw_html_cols={"Recorded", "Status"},
+            key="monitor_observation_log"
+        )
+    
     card_end()
 
     footer()
